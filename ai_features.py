@@ -77,3 +77,10 @@ class ChatBot:
     def reset(self):
         """Clear conversation history."""
         self.history = []
+
+    def add_to_history(self, role: str, text: str):
+        """Add a message to history (for rebuilding from DB)."""
+        gemini_role = "user" if role == "user" else "model"
+        self.history.append(
+            types.Content(role=gemini_role, parts=[types.Part(text=text)])
+        )

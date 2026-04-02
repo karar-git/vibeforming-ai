@@ -1,82 +1,226 @@
+import os
 import uuid
-from flask import Flask, jsonify, request, render_template
+import json
+from datetime import datetime
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
 from ai_features import ChatBot
 
 app = Flask(__name__)
+CORS(app)
 
-# Store sessions in memory (for demo - sessions reset on server restart)
-sessions: dict[str, ChatBot] = {}
+# Database config - use PostgreSQL on Railway or SQLite locally
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///chat.db")
+# Railway uses postgres:// but SQLAlchemy needs postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-def get_or_create_session(session_id: str = None) -> tuple[str, ChatBot]:
-    """Get existing session or create a new one."""
-    if session_id and session_id in sessions:
-        return session_id, sessions[session_id]
+db = SQLAlchemy(app)
 
-    new_id = str(uuid.uuid4())
-    sessions[new_id] = ChatBot()
-    return new_id, sessions[new_id]
-
-
-@app.route("/")
-def index():
-    """Serve the chat UI."""
-    return render_template("index.html")
+# Keep ChatBot instances in memory (for conversation context with Gemini)
+bot_instances: dict[str, ChatBot] = {}
 
 
-@app.route("/api/chat", methods=["POST"])
-def chat():
-    """Send a message and get a response."""
-    payload = request.get_json(silent=True) or {}
-    prompt = payload.get("prompt")
-    session_id = payload.get("session_id")
+# Database Models
+class Chat(db.Model):
+    __tablename__ = "chats"
 
-    if not prompt:
-        return jsonify({"error": "prompt is required"}), 400
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    title = db.Column(db.String(256), nullable=False, default="New Chat")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
-    session_id, bot = get_or_create_session(session_id)
-    result = bot.chat(prompt)
+    messages = db.relationship(
+        "Message",
+        backref="chat",
+        lazy=True,
+        cascade="all, delete-orphan",
+        order_by="Message.created_at",
+    )
 
+
+class Message(db.Model):
+    __tablename__ = "messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    chat_id = db.Column(db.String(36), db.ForeignKey("chats.id"), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
+    content = db.Column(db.Text, nullable=False)
+    search_queries = db.Column(db.Text, nullable=True)  # JSON array
+    sources = db.Column(db.Text, nullable=True)  # JSON array
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# Create tables
+with app.app_context():
+    db.create_all()
+
+
+def get_bot(chat_id: str) -> ChatBot:
+    """Get or create a ChatBot instance for a chat."""
+    if chat_id not in bot_instances:
+        bot_instances[chat_id] = ChatBot()
+
+        # Rebuild conversation history from DB
+        chat = Chat.query.get(chat_id)
+        if chat:
+            for msg in chat.messages:
+                bot_instances[chat_id].add_to_history(msg.role, msg.content)
+
+    return bot_instances[chat_id]
+
+
+# API Routes
+
+
+@app.route("/api/chats", methods=["GET"])
+def get_chats():
+    """Get all chats."""
+    chats = Chat.query.order_by(Chat.updated_at.desc()).all()
     return jsonify(
         {
-            "session_id": session_id,
-            "response": result["text"],
-            "search_queries": result["search_queries"],
-            "sources": result["sources"],
+            "chats": [
+                {
+                    "id": c.id,
+                    "title": c.title,
+                    "created_at": c.created_at.isoformat(),
+                    "updated_at": c.updated_at.isoformat(),
+                    "message_count": len(c.messages),
+                }
+                for c in chats
+            ]
         }
     )
 
 
-@app.route("/api/session/new", methods=["POST"])
-def new_session():
-    """Create a new chat session."""
-    session_id, _ = get_or_create_session()
-    return jsonify({"session_id": session_id})
-
-
-@app.route("/api/session/<session_id>/history", methods=["GET"])
-def get_history(session_id: str):
-    """Get chat history for a session."""
-    if session_id not in sessions:
-        return jsonify({"error": "session not found"}), 404
+@app.route("/api/chats", methods=["POST"])
+def create_chat():
+    """Create a new chat."""
+    chat = Chat()
+    db.session.add(chat)
+    db.session.commit()
 
     return jsonify(
-        {"session_id": session_id, "messages": sessions[session_id].get_history()}
+        {"id": chat.id, "title": chat.title, "created_at": chat.created_at.isoformat()}
     )
 
 
-@app.route("/api/session/<session_id>", methods=["DELETE"])
-def delete_session(session_id: str):
-    """Delete a chat session."""
-    if session_id in sessions:
-        del sessions[session_id]
+@app.route("/api/chats/<chat_id>", methods=["GET"])
+def get_chat(chat_id: str):
+    """Get a chat with all messages."""
+    chat = Chat.query.get(chat_id)
+    if not chat:
+        return jsonify({"error": "Chat not found"}), 404
+
+    return jsonify(
+        {
+            "id": chat.id,
+            "title": chat.title,
+            "created_at": chat.created_at.isoformat(),
+            "messages": [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "content": m.content,
+                    "search_queries": json.loads(m.search_queries)
+                    if m.search_queries
+                    else [],
+                    "sources": json.loads(m.sources) if m.sources else [],
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in chat.messages
+            ],
+        }
+    )
+
+
+@app.route("/api/chats/<chat_id>", methods=["DELETE"])
+def delete_chat(chat_id: str):
+    """Delete a chat."""
+    chat = Chat.query.get(chat_id)
+    if chat:
+        db.session.delete(chat)
+        db.session.commit()
+
+        # Clean up bot instance
+        if chat_id in bot_instances:
+            del bot_instances[chat_id]
+
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/chats/<chat_id>/messages", methods=["POST"])
+def send_message(chat_id: str):
+    """Send a message and get a response."""
+    payload = request.get_json(silent=True) or {}
+    prompt = payload.get("prompt")
+
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
+
+    # Get or create chat
+    chat = Chat.query.get(chat_id)
+    if not chat:
+        chat = Chat(id=chat_id)
+        db.session.add(chat)
+
+    # Update title if first message
+    if len(chat.messages) == 0:
+        chat.title = prompt[:50] + ("..." if len(prompt) > 50 else "")
+
+    # Save user message
+    user_msg = Message(chat_id=chat_id, role="user", content=prompt)
+    db.session.add(user_msg)
+
+    # Get bot response
+    bot = get_bot(chat_id)
+    result = bot.chat(prompt)
+
+    # Save assistant message
+    assistant_msg = Message(
+        chat_id=chat_id,
+        role="assistant",
+        content=result["text"],
+        search_queries=json.dumps(result["search_queries"])
+        if result["search_queries"]
+        else None,
+        sources=json.dumps(result["sources"]) if result["sources"] else None,
+    )
+    db.session.add(assistant_msg)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "user_message": {
+                "id": user_msg.id,
+                "role": "user",
+                "content": prompt,
+                "created_at": user_msg.created_at.isoformat(),
+            },
+            "assistant_message": {
+                "id": assistant_msg.id,
+                "role": "assistant",
+                "content": result["text"],
+                "search_queries": result["search_queries"],
+                "sources": result["sources"],
+                "created_at": assistant_msg.created_at.isoformat(),
+            },
+        }
+    )
+
+
 @app.route("/health")
+@app.route("/")
 def health():
     return jsonify({"status": "ok"})
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
