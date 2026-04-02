@@ -17,7 +17,13 @@ class ChatBot:
 
     def __init__(self, model: str = "gemini-2.5-flash"):
         self.model = model
-        self.system_prompt = "You are a helpful assistant that can search the web to answer questions. Provide accurate, up-to-date information."
+        self.system_prompt = """You are a helpful assistant that can search the web to answer questions. Provide accurate, up-to-date information.
+
+IMPORTANT RULES FOR WEB SEARCH:
+- When the user specifies PREFERRED websites, you MUST prioritize searching and citing information from those websites first.
+- When the user specifies PROHIBITED websites, you MUST NOT search or cite any information from those websites under any circumstances.
+- Always respect the user's website preferences in every search you perform.
+"""
         self.history = []
 
         self.grounding_tool = types.Tool(google_search=types.GoogleSearch())
@@ -25,10 +31,33 @@ class ChatBot:
             system_instruction=self.system_prompt, tools=[self.grounding_tool]
         )
 
-    def chat(self, user_message: str) -> dict:
-        """Send a message and get a response with web search enabled."""
+    def chat(
+        self, user_message: str, new_preferred: list = None, new_prohibited: list = None
+    ) -> dict:
+        """Send a message and get a response with web search enabled.
+
+        Args:
+            user_message: The user's message
+            new_preferred: List of NEW preferred websites to add (only sent once)
+            new_prohibited: List of NEW prohibited websites to add (only sent once)
+        """
+        # Build the actual message to send to Gemini
+        message_to_send = user_message
+
+        # Append website preferences if there are new ones
+        if new_preferred or new_prohibited:
+            message_to_send += "\n\n[WEBSITE PREFERENCES]"
+            if new_preferred:
+                message_to_send += (
+                    f"\nPREFERRED (prioritize these): {', '.join(new_preferred)}"
+                )
+            if new_prohibited:
+                message_to_send += (
+                    f"\nPROHIBITED (DO NOT use): {', '.join(new_prohibited)}"
+                )
+
         self.history.append(
-            types.Content(role="user", parts=[types.Part(text=user_message)])
+            types.Content(role="user", parts=[types.Part(text=message_to_send)])
         )
 
         response = client.models.generate_content(
@@ -42,18 +71,15 @@ class ChatBot:
             types.Content(role="model", parts=[types.Part(text=assistant_text)])
         )
 
-        # Extract grounding metadata (search queries and sources)
         search_queries = []
         sources = []
 
         if response.candidates and response.candidates[0].grounding_metadata:
             metadata = response.candidates[0].grounding_metadata
 
-            # Get search queries
             if metadata.web_search_queries:
                 search_queries = list(metadata.web_search_queries)
 
-            # Get sources from grounding chunks
             if metadata.grounding_chunks:
                 for chunk in metadata.grounding_chunks:
                     if chunk.web:

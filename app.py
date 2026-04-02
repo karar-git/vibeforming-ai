@@ -160,6 +160,8 @@ def send_message(chat_id: str):
     """Send a message and get a response."""
     payload = request.get_json(silent=True) or {}
     prompt = payload.get("prompt")
+    new_preferred = payload.get("new_preferred", [])  # New preferred websites
+    new_prohibited = payload.get("new_prohibited", [])  # New prohibited websites
 
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
@@ -174,13 +176,15 @@ def send_message(chat_id: str):
     if len(chat.messages) == 0:
         chat.title = prompt[:50] + ("..." if len(prompt) > 50 else "")
 
-    # Save user message
+    # Save user message (store original prompt without preferences appended)
     user_msg = Message(chat_id=chat_id, role="user", content=prompt)
     db.session.add(user_msg)
 
-    # Get bot response
+    # Get bot response (pass new preferences to append to message)
     bot = get_bot(chat_id)
-    result = bot.chat(prompt)
+    result = bot.chat(
+        prompt, new_preferred=new_preferred, new_prohibited=new_prohibited
+    )
 
     # Save assistant message
     assistant_msg = Message(

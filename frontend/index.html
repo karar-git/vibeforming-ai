@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -35,7 +36,7 @@
             border-bottom: 1px solid #2a2a2a;
         }
 
-        .new-chat-btn {
+        .new-chat-btn, .settings-btn {
             width: 100%;
             background: #2a2a2a;
             border: 1px solid #3a3a3a;
@@ -48,10 +49,16 @@
             align-items: center;
             gap: 8px;
             transition: background 0.2s;
+            margin-bottom: 8px;
         }
 
-        .new-chat-btn:hover {
+        .new-chat-btn:hover, .settings-btn:hover {
             background: #333;
+        }
+
+        .settings-btn {
+            background: transparent;
+            border: 1px solid #3a3a3a;
         }
 
         .chat-list {
@@ -171,7 +178,43 @@
 
         .message-content {
             line-height: 1.7;
-            white-space: pre-wrap;
+        }
+
+        /* Markdown styles */
+        .message-content p { margin-bottom: 12px; }
+        .message-content p:last-child { margin-bottom: 0; }
+        .message-content ul, .message-content ol { margin: 12px 0; padding-left: 24px; }
+        .message-content li { margin-bottom: 6px; }
+        .message-content code {
+            background: #2a2a2a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 13px;
+        }
+        .message-content pre {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+        .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+        .message-content h1, .message-content h2, .message-content h3 {
+            margin: 16px 0 8px;
+        }
+        .message-content a {
+            color: #60a5fa;
+        }
+        .message-content blockquote {
+            border-left: 3px solid #4a4a4a;
+            padding-left: 12px;
+            margin: 12px 0;
+            color: #aaa;
         }
 
         .search-badge {
@@ -348,6 +391,145 @@
             word-break: break-all;
         }
 
+        /* Settings Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 16px;
+            width: 500px;
+            max-width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #2a2a2a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 18px;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .setting-group {
+            margin-bottom: 24px;
+        }
+
+        .setting-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #aaa;
+        }
+
+        .setting-group small {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .website-input-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .website-input-row input {
+            flex: 1;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: #e5e5e5;
+            font-size: 14px;
+        }
+
+        .website-input-row input:focus {
+            outline: none;
+            border-color: #4a4a4a;
+        }
+
+        .website-input-row button {
+            background: #4f46e5;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: white;
+            cursor: pointer;
+        }
+
+        .website-input-row button:hover {
+            background: #4338ca;
+        }
+
+        .website-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .website-tag {
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .website-tag.preferred {
+            border-color: #22c55e40;
+            background: #22c55e10;
+        }
+
+        .website-tag.prohibited {
+            border-color: #ef444440;
+            background: #ef444410;
+        }
+
+        .website-tag button {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 0;
+            font-size: 16px;
+            line-height: 1;
+        }
+
+        .website-tag button:hover {
+            color: #ef4444;
+        }
+
         /* Loading */
         .typing-indicator {
             display: flex;
@@ -429,6 +611,36 @@
         </div>
     </div>
 
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="close-panel" onclick="closeSettings()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <label>Preferred Websites</label>
+                    <small>AI will prioritize searching these websites</small>
+                    <div class="website-input-row">
+                        <input type="text" id="preferred-input" placeholder="e.g. wikipedia.org">
+                        <button onclick="addWebsite('preferred')">Add</button>
+                    </div>
+                    <div class="website-list" id="preferred-list"></div>
+                </div>
+                <div class="setting-group">
+                    <label>Prohibited Websites</label>
+                    <small>AI will NOT search these websites</small>
+                    <div class="website-input-row">
+                        <input type="text" id="prohibited-input" placeholder="e.g. example.com">
+                        <button onclick="addWebsite('prohibited')">Add</button>
+                    </div>
+                    <div class="website-list" id="prohibited-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="sidebar-header">
@@ -438,6 +650,13 @@
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
                 New Chat
+            </button>
+            <button class="settings-btn" onclick="openSettings()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M12 1v6m0 6v10M1 12h6m6 0h10"></path>
+                </svg>
+                Settings
             </button>
         </div>
         <div class="chat-list" id="chat-list"></div>
@@ -491,6 +710,12 @@
         let currentMessages = [];
         let isLoading = false;
 
+        // Website preferences (stored in localStorage)
+        let preferredWebsites = JSON.parse(localStorage.getItem('preferredWebsites') || '[]');
+        let prohibitedWebsites = JSON.parse(localStorage.getItem('prohibitedWebsites') || '[]');
+        let lastSentPreferred = JSON.parse(localStorage.getItem('lastSentPreferred') || '[]');
+        let lastSentProhibited = JSON.parse(localStorage.getItem('lastSentProhibited') || '[]');
+
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             // Auto-resize textarea
@@ -500,10 +725,97 @@
                 this.style.height = Math.min(this.scrollHeight, 200) + 'px';
             });
 
+            // Enter to add websites
+            document.getElementById('preferred-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); addWebsite('preferred'); }
+            });
+            document.getElementById('prohibited-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); addWebsite('prohibited'); }
+            });
+
+            renderWebsiteLists();
+
             // Load chats from server
             await loadChatList();
             document.getElementById('loading-overlay').classList.add('hidden');
         });
+
+        // Settings functions
+        function openSettings() {
+            document.getElementById('settings-modal').classList.add('open');
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-modal').classList.remove('open');
+        }
+
+        function addWebsite(type) {
+            const input = document.getElementById(`${type}-input`);
+            const website = input.value.trim().toLowerCase();
+            
+            if (!website) return;
+            
+            // Clean up URL
+            let cleanUrl = website.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/.*$/, '');
+            
+            if (type === 'preferred') {
+                if (!preferredWebsites.includes(cleanUrl)) {
+                    preferredWebsites.push(cleanUrl);
+                    localStorage.setItem('preferredWebsites', JSON.stringify(preferredWebsites));
+                }
+            } else {
+                if (!prohibitedWebsites.includes(cleanUrl)) {
+                    prohibitedWebsites.push(cleanUrl);
+                    localStorage.setItem('prohibitedWebsites', JSON.stringify(prohibitedWebsites));
+                }
+            }
+            
+            input.value = '';
+            renderWebsiteLists();
+        }
+
+        function removeWebsite(type, website) {
+            if (type === 'preferred') {
+                preferredWebsites = preferredWebsites.filter(w => w !== website);
+                localStorage.setItem('preferredWebsites', JSON.stringify(preferredWebsites));
+            } else {
+                prohibitedWebsites = prohibitedWebsites.filter(w => w !== website);
+                localStorage.setItem('prohibitedWebsites', JSON.stringify(prohibitedWebsites));
+            }
+            renderWebsiteLists();
+        }
+
+        function renderWebsiteLists() {
+            document.getElementById('preferred-list').innerHTML = preferredWebsites.map(w => `
+                <span class="website-tag preferred">
+                    ${escapeHtml(w)}
+                    <button onclick="removeWebsite('preferred', '${escapeHtml(w)}')">&times;</button>
+                </span>
+            `).join('');
+            
+            document.getElementById('prohibited-list').innerHTML = prohibitedWebsites.map(w => `
+                <span class="website-tag prohibited">
+                    ${escapeHtml(w)}
+                    <button onclick="removeWebsite('prohibited', '${escapeHtml(w)}')">&times;</button>
+                </span>
+            `).join('');
+        }
+
+        function getNewPreferences() {
+            // Check for new preferences that haven't been sent yet
+            const newPreferred = preferredWebsites.filter(w => !lastSentPreferred.includes(w));
+            const newProhibited = prohibitedWebsites.filter(w => !lastSentProhibited.includes(w));
+            
+            return { newPreferred, newProhibited };
+        }
+
+        function markPreferencesAsSent() {
+            // Update last sent after successful message
+            lastSentPreferred = [...preferredWebsites];
+            lastSentProhibited = [...prohibitedWebsites];
+            localStorage.setItem('lastSentPreferred', JSON.stringify(lastSentPreferred));
+            localStorage.setItem('lastSentProhibited', JSON.stringify(lastSentProhibited));
+        }
 
         async function loadChatList() {
             try {
@@ -524,6 +836,12 @@
                 const data = await res.json();
                 currentChatId = chatId;
                 currentMessages = data.messages || [];
+                
+                // Reset sent preferences for new chat context
+                lastSentPreferred = [];
+                lastSentProhibited = [];
+                localStorage.setItem('lastSentPreferred', '[]');
+                localStorage.setItem('lastSentProhibited', '[]');
                 
                 closePanel();
                 renderMessages();
@@ -584,12 +902,18 @@
                     alert('Failed to create chat');
                     return;
                 }
+                // Reset sent preferences for new chat
+                lastSentPreferred = [];
+                lastSentProhibited = [];
             }
+
+            // Get new preferences to send (only new ones, not already sent)
+            const { newPreferred, newProhibited } = getNewPreferences();
 
             // Hide empty state
             document.getElementById('empty-state')?.remove();
 
-            // Add user message to UI immediately
+            // Add user message to UI
             const userMsg = { role: 'user', content: message };
             currentMessages.push(userMsg);
             renderMessage(userMsg);
@@ -606,12 +930,19 @@
                 const res = await fetch(`${API_URL}/api/chats/${currentChatId}/messages`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: message })
+                    body: JSON.stringify({ 
+                        prompt: message,
+                        new_preferred: newPreferred,
+                        new_prohibited: newProhibited
+                    })
                 });
 
                 const data = await res.json();
                 
                 if (data.error) throw new Error(data.error);
+
+                // Mark preferences as sent after successful response
+                markPreferencesAsSent();
 
                 // Update user message with ID from server
                 currentMessages[currentMessages.length - 1] = data.user_message;
@@ -664,12 +995,17 @@
                 }
             };
 
+            // Parse markdown for assistant messages
+            const content = msg.role === 'assistant' 
+                ? marked.parse(msg.content || '')
+                : escapeHtml(msg.content || '');
+
             div.innerHTML = `
                 <div class="message-header">
                     ${msg.role === 'user' ? 'You' : 'Assistant'}
                     ${hasSearch ? '<span class="search-badge">Web Search</span>' : ''}
                 </div>
-                <div class="message-content">${escapeHtml(msg.content)}</div>
+                <div class="message-content">${content}</div>
             `;
 
             container.appendChild(div);
@@ -741,6 +1077,12 @@
         function newChat() {
             currentChatId = null;
             currentMessages = [];
+            // Reset sent preferences for new chat
+            lastSentPreferred = [];
+            lastSentProhibited = [];
+            localStorage.setItem('lastSentPreferred', '[]');
+            localStorage.setItem('lastSentProhibited', '[]');
+            
             closePanel();
             showEmptyState();
             renderChatList();
@@ -783,6 +1125,11 @@
             div.textContent = text;
             return div.innerHTML;
         }
+
+        // Close modal on outside click
+        document.getElementById('settings-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'settings-modal') closeSettings();
+        });
     </script>
 </body>
 </html>
